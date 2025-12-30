@@ -4,7 +4,6 @@
 # Author: RocketGod - https://betaskynet.com
 # Crew: The Pirates' Plunder - https://discord.gg/thepirates
 
-INPUT=/dev/input/event0
 LOOT_DIR="/root/loot/simon_says"
 HIGH_SCORE_FILE="$LOOT_DIR/high_score"
 
@@ -54,31 +53,6 @@ play_win()     { RINGTONE "bonus" & }
 play_start()   { RINGTONE "getkey" & }
 play_levelup() { RINGTONE "xp" & }
 
-# === INPUT ===
-
-flush_input() {
-    dd if=$INPUT of=/dev/null bs=16 count=100 iflag=nonblock 2>/dev/null
-}
-
-read_button() {
-    while true; do
-        local data=$(dd if=$INPUT bs=16 count=1 2>/dev/null | hexdump -e '16/1 "%02x "')
-        [ -z "$data" ] && continue
-        local type=$(echo "$data" | cut -d' ' -f9-10)
-        local value=$(echo "$data" | cut -d' ' -f13)
-        if [ "$type" = "01 00" ] && [ "$value" = "01" ]; then
-            local keycode=$(echo "$data" | cut -d' ' -f11-12)
-            case "$keycode" in
-                "67 00") echo "UP"; return ;;
-                "6c 00") echo "DOWN"; return ;;
-                "69 00") echo "LEFT"; return ;;
-                "6a 00") echo "RIGHT"; return ;;
-                "31 01"|"30 01") echo "CENTER"; return ;;
-            esac
-        fi
-    done
-}
-
 # === GAME ===
 
 flash_direction() {
@@ -115,9 +89,11 @@ show_pattern() {
 
 get_player_input() {
     for expected in "${PATTERN[@]}"; do
-        flush_input
-        local btn=$(read_button)
-        [ "$btn" = "CENTER" ] && return 2
+        local btn=$(WAIT_FOR_INPUT)
+        
+        # A = quit
+        [ "$btn" = "A" ] && return 2
+        
         case "$btn" in
             UP)    led_up;    play_up ;;
             DOWN)  led_down;  play_down ;;
@@ -126,6 +102,7 @@ get_player_input() {
         esac
         sleep 0.12
         led_off
+        
         [ "$btn" != "$expected" ] && return 1
     done
     return 0
@@ -172,7 +149,6 @@ while true; do
     
     LOG "Round $SCORE"
     show_pattern
-    flush_input
     
     get_player_input
     result=$?
@@ -188,10 +164,9 @@ while true; do
         SCORE=$((SCORE - 1))
         [ $SCORE -gt $HIGH_SCORE ] && { echo "$SCORE" > "$HIGH_SCORE_FILE"; HIGH_SCORE=$SCORE; }
         LOG "WRONG! Score: $SCORE (Best: $HIGH_SCORE)"
-        LOG "Any button=Retry, CENTER=Quit"
-        flush_input
-        btn=$(read_button)
-        [ "$btn" = "CENTER" ] && { led_off; exit 0; }
+        LOG "Any button=Retry, A=Quit"
+        btn=$(WAIT_FOR_INPUT)
+        [ "$btn" = "A" ] && { led_off; exit 0; }
         PATTERN=()
         SCORE=0
         LOG ""
